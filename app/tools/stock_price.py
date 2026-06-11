@@ -1,3 +1,4 @@
+from ast import Dict
 import yfinance as yf
 from langchain_core.tools import tool
 import logging 
@@ -5,7 +6,7 @@ from pprint import pprint
 from datetime import datetime
 
 @tool
-def get_stock_price(ticker: str):
+def get_stock_price(ticker: str) -> Dict:
     """
     Returns the current stock price and basic information for a given ticker symbol.
 
@@ -72,5 +73,3 @@ def get_stock_price(ticker: str):
             'error': f'Error fetching stock data: {str(e)}',
             'timestamp': datetime.now.isoformat()
         }
-        
-pprint(get_stock_price('AAPL'))
