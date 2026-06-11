@@ -2,7 +2,6 @@ from ast import Dict
 import yfinance as yf
 from langchain_core.tools import tool
 import logging 
-from pprint import pprint
 from datetime import datetime
 
 @tool

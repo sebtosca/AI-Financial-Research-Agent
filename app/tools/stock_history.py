@@ -1,6 +1,5 @@
 from langchain_core.tools import tool
 from typing import Dict
-from pprint import pprint
 import yfinance as yf
 
 @tool
