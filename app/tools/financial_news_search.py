@@ -1,4 +1,4 @@
-from langchain_community.tools.tavily_search import TavilySearchResults
+from langchain_tavily import TavilySearch
 from langchain_core.tools import tool
 from typing import List, Dict
 from dotenv import load_dotenv
@@ -8,11 +8,10 @@ load_dotenv()
 
 tavily_api_key = os.getenv("TAVILY_API_KEY")
 
-# Initialize tavily search news 
-tavily_tools = TavilySearchResults(
-    max_results=5, 
+tavily_tools = TavilySearch(
+    max_results=5,
     search_depth="advanced",
-    include_answer=True, 
+    include_answer=True,
     include_raw_content=False,
     include_images=False
 )

@@ -1,4 +1,3 @@
-from pyexpat import model
 from langchain_core.messages import SystemMessage
 import logging 
 
@@ -16,7 +15,15 @@ def create_agent_node(model_with_tools, system_prompt):
         messages = [system_msg] + list(state["messages"])
         
         # model can decide to execute tools
+        logger.info("   Calling LLM with tools...")
         response = model_with_tools.invoke(messages)
+
+        if hasattr(response, 'tool_calls') and response.tool_calls:
+            logger.info(f"Agent decided to use {len(response.tool_calls)} tool(s)")
+            for i, tool_call in enumerate(response.tool_calls, 1):
+                logger.info(f"   {i}. {tool_call['name']}")
+        else:
+            logger.info("Agent generated final response (no tools needed)")
 
         return {"messages": [response]}
     
