@@ -1,40 +1,117 @@
+import logging
+import time
+from typing import Any, Callable
+
 from langchain_core.messages import SystemMessage
-import logging 
 
 logger = logging.getLogger(__name__)
 
-# Template to create a node 
-def create_agent_node(model_with_tools, system_prompt):
-    def agent_node(state):
-        logger.info("AGENT NODE: Processing request...")
 
-        system_msg = SystemMessage(content=system_prompt)
-        
-        # Combine the system message with the conversation history stored in state
-        # System message goes first so that model knows how to behave
-        messages = [system_msg] + list(state["messages"])
-        
-        # model can decide to execute tools
-        logger.info("   Calling LLM with tools...")
-        response = model_with_tools.invoke(messages)
+def create_agent_node(model_with_tools: Any, system_prompt: str) -> Callable:
+    """
+    Create the main agent node.
 
-        if hasattr(response, 'tool_calls') and response.tool_calls:
-            logger.info(f"Agent decided to use {len(response.tool_calls)} tool(s)")
-            for i, tool_call in enumerate(response.tool_calls, 1):
-                logger.info(f"   {i}. {tool_call['name']}")
-        else:
-            logger.info("Agent generated final response (no tools needed)")
+    This node:
+    - validates the graph state
+    - prepends the system prompt
+    - calls the LLM with tools bound
+    - logs tool-call decisions
+    - returns the model response to LangGraph state
+    """
 
-        return {"messages": [response]}
-    
+    def agent_node(state: dict) -> dict:
+        start_time = time.perf_counter()
+
+        logger.info("Agent node started")
+
+        try:
+            if "messages" not in state or not state["messages"]:
+                raise ValueError("State does not contain any messages")
+
+            system_message = SystemMessage(content=system_prompt)
+
+            messages = [system_message] + list(state["messages"])
+
+            logger.info(
+                "Calling LLM with tools | input_messages=%d",
+                len(messages),
+            )
+
+            response = model_with_tools.invoke(messages)
+
+            tool_calls = getattr(response, "tool_calls", None)
+
+            if tool_calls:
+                logger.info(
+                    "Agent requested tool calls | tool_call_count=%d",
+                    len(tool_calls),
+                )
+
+                for index, tool_call in enumerate(tool_calls, start=1):
+                    logger.info(
+                        "Tool call requested | index=%d | tool_name=%s",
+                        index,
+                        tool_call.get("name", "unknown"),
+                    )
+
+            else:
+                logger.info("Agent generated final response")
+
+            duration_ms = (time.perf_counter() - start_time) * 1000
+
+            logger.info(
+                "Agent node completed | duration_ms=%.2f",
+                duration_ms,
+            )
+
+            return {"messages": [response]}
+
+        except Exception as e:
+            duration_ms = (time.perf_counter() - start_time) * 1000
+
+            logger.exception(
+                "Agent node failed | duration_ms=%.2f",
+                duration_ms,
+            )
+
+            raise RuntimeError(f"Agent node failed: {e}") from e
+
     return agent_node
 
-# wraps logging behavior to existing tool
-def create_tool_node_with_logging(original_tool_node):
-    def tool_node_with_logging(state):
-        logger.info("TOOL NODE: Executing tools...")
-        result = original_tool_node.invoke(state)
-        logger.info("Tools executed successfully")
-        return result
-    return tool_node_with_logging
 
+def create_tool_node_with_logging(original_tool_node: Any) -> Callable:
+    """
+    Wrap a LangGraph ToolNode with production-style logging and error handling.
+    """
+
+    def tool_node_with_logging(state: dict) -> dict:
+        start_time = time.perf_counter()
+
+        logger.info("Tool node started")
+
+        try:
+            if "messages" not in state or not state["messages"]:
+                raise ValueError("State does not contain any messages")
+
+            result = original_tool_node.invoke(state)
+
+            duration_ms = (time.perf_counter() - start_time) * 1000
+
+            logger.info(
+                "Tool node completed | duration_ms=%.2f",
+                duration_ms,
+            )
+
+            return result
+
+        except Exception as e:
+            duration_ms = (time.perf_counter() - start_time) * 1000
+
+            logger.exception(
+                "Tool node failed | duration_ms=%.2f",
+                duration_ms,
+            )
+
+            raise RuntimeError(f"Tool node failed: {e}") from e
+
+    return tool_node_with_logging

@@ -1,15 +1,16 @@
-from typing_extensions import TypedDict, Annotated, Sequence
-from langgraph.graph.message import add_messages
+from typing import Annotated, Sequence
 
-# Sequence: collection of things where order matters - similar to a list
-# Annotated: Attach instructions to a variable
-# add_messages: merge rule. when new messages arrive, append them.
+from langchain_core.messages import BaseMessage
+from langgraph.graph.message import add_messages
+from typing_extensions import TypedDict
+
 
 class SimpleAgentState(TypedDict):
     """
     State for the financial research agent.
-    Tracks the conversation history with message accumalation.
+
+    messages:
+        Conversation history. LangGraph appends new messages using add_messages.
     """
-    messages: Annotated[Sequence, add_messages]
 
-
+    messages: Annotated[Sequence[BaseMessage], add_messages]
