@@ -118,6 +118,50 @@ CHROMA_DB_DIR: str = os.getenv("CHROMA_DB_DIR", "./chroma_db")
 RETRIEVER_TOP_K: int = _get_int("RETRIEVER_TOP_K", 10)
 RETRIEVER_SEARCH_TYPE: str = os.getenv("RETRIEVER_SEARCH_TYPE", "similarity")
 
+# Private database tool
+PRIVATE_DATABASE_MODEL: str = os.getenv(
+    "PRIVATE_DATABASE_MODEL",
+    OPENAI_MODEL,
+)
+PRIVATE_DATABASE_TEMPERATURE: float = _get_float(
+    "PRIVATE_DATABASE_TEMPERATURE",
+    0.0,
+)
+PRIVATE_DATABASE_MAX_QUERY_CHARS: int = _get_int(
+    "PRIVATE_DATABASE_MAX_QUERY_CHARS",
+    2000,
+)
+PRIVATE_DATABASE_MAX_CONTEXT_CHARS: int = _get_int(
+    "PRIVATE_DATABASE_MAX_CONTEXT_CHARS",
+    20000,
+)
+PRIVATE_DATABASE_REQUEST_TIMEOUT: float = _get_float(
+    "PRIVATE_DATABASE_REQUEST_TIMEOUT",
+    30.0,
+)
+PRIVATE_DATABASE_MAX_RETRIES: int = _get_int(
+    "PRIVATE_DATABASE_MAX_RETRIES",
+    2,
+)
+PRIVATE_DATABASE_NO_RESULTS_MESSAGE: str = os.getenv(
+    "PRIVATE_DATABASE_NO_RESULTS_MESSAGE",
+    "I don't know - this information is not available in our analyst reports.",
+)
+PRIVATE_DATABASE_ERROR_MESSAGE: str = os.getenv(
+    "PRIVATE_DATABASE_ERROR_MESSAGE",
+    "The private analyst database is temporarily unavailable.",
+)
+PRIVATE_DATABASE_SYSTEM_PROMPT: str = os.getenv(
+    "PRIVATE_DATABASE_SYSTEM_PROMPT",
+    (
+        "You answer questions about company AI initiatives using only the "
+        "retrieved analyst-report context. Cite the source for every material "
+        "claim. Do not use outside knowledge. If the context does not contain "
+        "the answer, reply exactly with: "
+        f"{PRIVATE_DATABASE_NO_RESULTS_MESSAGE}"
+    ),
+)
+
 # Tool defaults
 STOCK_HISTORY_DEFAULT_PERIOD: str = os.getenv(
     "STOCK_HISTORY_DEFAULT_PERIOD",
@@ -128,3 +172,4 @@ REQUIRED_AGENT_ENV_VARS: tuple[str, ...] = ("OPENAI_API_KEY",)
 REQUIRED_EMBEDDING_ENV_VARS: tuple[str, ...] = ("OPENAI_API_KEY",)
 REQUIRED_SENTIMENT_ENV_VARS: tuple[str, ...] = ("OPENAI_API_KEY",)
 REQUIRED_TAVILY_ENV_VARS: tuple[str, ...] = ("TAVILY_API_KEY",)
+REQUIRED_PRIVATE_DATABASE_ENV_VARS: tuple[str, ...] = ("OPENAI_API_KEY",)
