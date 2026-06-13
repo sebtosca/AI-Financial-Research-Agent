@@ -24,6 +24,20 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 
+def _default_tools(with_rag: bool) -> list:
+    tools = [
+        get_stock_price,
+        get_stock_history,
+        search_financial_news,
+        analyze_sentiment,
+    ]
+
+    if with_rag:
+        tools.append(query_private_database)
+
+    return tools
+
+
 def should_continue(state: SimpleAgentState) -> Literal["tools", "end"]:
     """
     Determine whether the workflow should continue to the tool node
@@ -91,25 +105,35 @@ def build_model(tools: list):
 def create_financial_agent(
     agent_type: str = "full",
     with_memory: bool = True,
+    with_rag: bool = True,
     tools: Optional[list] = None,
 ):
     """
     Create and compile the financial research agent graph.
+
+    Args:
+        agent_type: Prompt profile to use: traditional, basic, or full.
+        with_memory: Whether to enable conversation checkpoint memory.
+        with_rag: Whether default tools include the private database tool.
+        tools: Optional explicit tool list. When provided, it takes precedence
+            over with_rag.
     """
 
     if tools is None:
-        tools = [
-            get_stock_price,
-            get_stock_history,
-            search_financial_news,
-            analyze_sentiment,
-            query_private_database,
-        ]
+        tools = _default_tools(with_rag)
+
+    if not tools:
+        raise ValueError("At least one tool must be configured")
 
     logger.info(
-        "Creating financial agent | agent_type=%s | tool_count=%d | prompt_version=%s",
+        (
+            "Creating financial agent | agent_type=%s | tool_count=%d | "
+            "rag_enabled=%s | memory_enabled=%s | prompt_version=%s"
+        ),
         agent_type,
         len(tools),
+        any(tool.name == query_private_database.name for tool in tools),
+        with_memory,
         PROMPT_VERSION,
     )
 
@@ -176,3 +200,15 @@ def create_financial_agent(
         raise RuntimeError(
             f"Failed to create financial agent: {e}"
         ) from e
+
+
+def create_enhanced_financial_agent(
+    with_rag: bool = True,
+    with_memory: bool = True,
+):
+    """Create the full financial research agent with optional RAG access."""
+    return create_financial_agent(
+        agent_type="full",
+        with_memory=with_memory,
+        with_rag=with_rag,
+    )
