@@ -1,26 +1,13 @@
 import logging
-import os
 import zipfile
 from pathlib import Path
 
 from langchain_community.document_loaders import PyPDFDirectoryLoader
 from langchain_core.documents import Document
 
+from app.config import DOCS_PATH, LOG_LEVEL, ZIP_FILE
+
 logger = logging.getLogger(__name__)
-
-DOCS_PATH = Path(
-    os.getenv(
-        "DOCS_PATH",
-        "/home/professorx/projects/Agentic_RAG/app/docs",
-    )
-)
-
-ZIP_FILE = Path(
-    os.getenv(
-        "ZIP_FILE",
-        DOCS_PATH / "Companies-AI-Initiatives.zip",
-    )
-)
 
 
 def _safe_extract(zip_ref: zipfile.ZipFile, extract_to: Path) -> None:
@@ -127,7 +114,7 @@ def load_documents() -> list[Document]:
 
 if __name__ == "__main__":
     logging.basicConfig(
-        level=logging.INFO,
+        level=LOG_LEVEL,
         format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
     )
 

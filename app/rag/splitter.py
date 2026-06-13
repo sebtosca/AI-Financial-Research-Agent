@@ -1,16 +1,18 @@
 import logging
-import os
 
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+from app.config import (
+    CHUNK_OVERLAP,
+    CHUNK_SIZE,
+    LOG_LEVEL,
+    TEXT_SPLITTER_ENCODING,
+)
+
 from .loader import extract_documents, load_documents
 
 logger = logging.getLogger(__name__)
-
-ENCODING_NAME = os.getenv("TEXT_SPLITTER_ENCODING", "cl100k_base")
-CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "1000"))
-CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "200"))
 
 
 def validate_splitter_config() -> None:
@@ -37,7 +39,7 @@ def build_text_splitter() -> RecursiveCharacterTextSplitter:
     logger.info("Initializing text splitter")
 
     text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
-        encoding_name=ENCODING_NAME,
+        encoding_name=TEXT_SPLITTER_ENCODING,
         chunk_size=CHUNK_SIZE,
         chunk_overlap=CHUNK_OVERLAP,
     )
@@ -47,7 +49,7 @@ def build_text_splitter() -> RecursiveCharacterTextSplitter:
             "Text splitter configured | "
             "encoding=%s | chunk_size=%d | chunk_overlap=%d | strategy=%s"
         ),
-        ENCODING_NAME,
+        TEXT_SPLITTER_ENCODING,
         CHUNK_SIZE,
         CHUNK_OVERLAP,
         "recursive_character",
@@ -93,7 +95,7 @@ def run_splitter_pipeline() -> list[Document]:
 
 if __name__ == "__main__":
     logging.basicConfig(
-        level=logging.INFO,
+        level=LOG_LEVEL,
         format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
     )
 
