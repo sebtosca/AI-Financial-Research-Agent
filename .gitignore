@@ -1,6 +1,7 @@
 # Environment variables
 .env
-.env*
+.env.*
+!.env.example
 
 # Python
 __pycache__/
@@ -24,6 +25,10 @@ venv/
 
 # Local databases
 *.db
+chroma_db/
+
+# Local RAG source documents and extracted files
+app/docs/
 
 # Model/cache folders
 models/
