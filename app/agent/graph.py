@@ -15,6 +15,7 @@ from ..tools import (
     analyze_sentiment,
     get_stock_history,
     get_stock_price,
+    query_private_database,
     search_financial_news,
 )
 
@@ -102,6 +103,7 @@ def create_financial_agent(
             get_stock_history,
             search_financial_news,
             analyze_sentiment,
+            query_private_database,
         ]
 
     logger.info(
