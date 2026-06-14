@@ -157,6 +157,12 @@ def query_private_database(query: str) -> str:
 
     except ToolException:
         raise
+    except FileNotFoundError as exc:
+        logger.warning(
+            "Private database index unavailable | directory=%s",
+            CHROMA_DB_DIR,
+        )
+        raise ToolException(PRIVATE_DATABASE_ERROR_MESSAGE) from exc
     except ValueError as exc:
         logger.warning("Invalid private database query | error=%s", exc)
         raise ToolException(str(exc)) from exc

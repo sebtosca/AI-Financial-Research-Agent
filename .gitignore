@@ -25,10 +25,12 @@ venv/
 
 # Local databases
 *.db
+*.sqlite3
 chroma_db/
 
 # Local RAG source documents and extracted files
 app/docs/
+docs/Companies-AI-Initiatives.zip
 
 # Model/cache folders
 models/
@@ -40,3 +42,13 @@ cache/
 
 # HuggingFace
 hf_cache/
+
+# Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/*.tsbuildinfo
+
+# Test and build artifacts
+.coverage
+htmlcov/

@@ -1,0 +1,38 @@
+{
+  "annotations": { "list": [] },
+  "editable": false,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Active Research Runs",
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 0 },
+      "targets": [{ "expr": "financial_agent_active_runs", "legendFormat": "active" }]
+    },
+    {
+      "type": "stat",
+      "title": "Completed Runs",
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 0 },
+      "targets": [{ "expr": "sum(financial_agent_runs_total{status=\"completed\"})", "legendFormat": "completed" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Run Duration p95",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 0 },
+      "targets": [{ "expr": "histogram_quantile(0.95, sum(rate(financial_agent_run_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p95" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Tool Calls by Status",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 9 },
+      "targets": [{ "expr": "sum(rate(financial_agent_tool_calls_total[5m])) by (tool, status)", "legendFormat": "{{tool}} / {{status}}" }]
+    }
+  ],
+  "refresh": "15s",
+  "schemaVersion": 39,
+  "tags": ["agent", "rag", "production"],
+  "templating": { "list": [] },
+  "time": { "from": "now-6h", "to": "now" },
+  "title": "Financial Research Agent Overview",
+  "uid": "financial-agent-overview",
+  "version": 1
+}

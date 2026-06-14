@@ -3,6 +3,7 @@ import os
 from typing import Literal, Optional
 
 from dotenv import load_dotenv
+from langchain_core.tools import ToolException
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
@@ -22,6 +23,17 @@ from ..tools import (
 load_dotenv()
 
 logger = logging.getLogger(__name__)
+
+
+def _handle_tool_error(error: Exception) -> str:
+    if isinstance(error, ToolException):
+        return str(error)
+
+    logger.error(
+        "Unhandled tool error converted to safe tool response | error_type=%s",
+        type(error).__name__,
+    )
+    return "The tool is temporarily unavailable. Continue with available data."
 
 
 def _default_tools(with_rag: bool) -> list:
@@ -154,7 +166,10 @@ def create_financial_agent(
             system_prompt=system_prompt,
         )
 
-        original_tool_node = ToolNode(tools)
+        original_tool_node = ToolNode(
+            tools,
+            handle_tool_errors=_handle_tool_error,
+        )
 
         tool_node = create_tool_node_with_logging(
             original_tool_node
