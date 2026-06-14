@@ -64,6 +64,19 @@ APP_HOST: str = os.getenv("APP_HOST", "127.0.0.1")
 APP_PORT: int = _get_int("APP_PORT", 8000)
 LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
 DEBUG: bool = _get_bool("DEBUG", False)
+RUN_STORE_PATH: Path = _get_path(
+    "RUN_STORE_PATH",
+    PROJECT_ROOT / "data" / "research_history.sqlite3",
+)
+DATABASE_URL: str | None = os.getenv("DATABASE_URL") or None
+DATABASE_POOL_MIN_SIZE: int = _get_int("DATABASE_POOL_MIN_SIZE", 1)
+DATABASE_POOL_MAX_SIZE: int = _get_int("DATABASE_POOL_MAX_SIZE", 10)
+DATABASE_POOL_TIMEOUT: float = _get_float("DATABASE_POOL_TIMEOUT", 30.0)
+APP_CORS_ORIGINS: tuple[str, ...] = tuple(
+    origin.strip()
+    for origin in os.getenv("APP_CORS_ORIGINS", "http://localhost:3000").split(",")
+    if origin.strip()
+)
 
 # OpenAI
 OPENAI_API_KEY: str | None = os.getenv("OPENAI_API_KEY")
@@ -115,6 +128,7 @@ CHROMA_COLLECTION_NAME: str = os.getenv(
     "ai_initiatives",
 )
 CHROMA_DB_DIR: str = os.getenv("CHROMA_DB_DIR", "./chroma_db")
+RAG_REBUILD_INDEX: bool = _get_bool("RAG_REBUILD_INDEX", False)
 RETRIEVER_TOP_K: int = _get_int("RETRIEVER_TOP_K", 10)
 RETRIEVER_SEARCH_TYPE: str = os.getenv("RETRIEVER_SEARCH_TYPE", "similarity")
 
