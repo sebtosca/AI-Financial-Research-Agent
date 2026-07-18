@@ -1,0 +1,3 @@
+# Trivy vulnerability exceptions.
+# Add CVE IDs here only with a comment explaining why they're accepted
+# (e.g. no fix available, not exploitable in this deployment).
