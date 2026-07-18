@@ -1,5 +1,5 @@
-langchain==0.3.27
-langchain-core==0.3.81
+langchain==0.3.30
+langchain-core==0.3.86
 langchain-openai==0.3.11
 langchain-community==0.3.31
 langgraph==0.3.7
@@ -17,7 +17,7 @@ prometheus-client==0.25.0
 httpx==0.28.1
 psycopg[binary]==3.2.13
 psycopg-pool==3.3.1
-langsmith==0.4.44
+langsmith==0.8.18
 arq==0.28.0
 redis==5.3.1
 fakeredis==2.36.2
