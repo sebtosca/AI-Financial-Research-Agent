@@ -1,5 +1,5 @@
 langchain==0.3.27
-langchain-core==0.3.79
+langchain-core==0.3.81
 langchain-openai==0.3.11
 langchain-community==0.3.31
 langgraph==0.3.7
