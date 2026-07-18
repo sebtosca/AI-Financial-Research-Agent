@@ -57,6 +57,25 @@ async def test_create_run_queues_background_execution(monkeypatch):
 
 
 @pytest.mark.anyio
+async def test_create_run_enqueues_via_arq_when_configured():
+    app = create_app(InMemoryRunStore())
+    arq_pool = AsyncMock()
+    app.state.arq_pool = arq_pool
+    transport = httpx.ASGITransport(app=app)
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        thread = (await client.post("/api/v1/threads", json={})).json()
+        response = await client.post(
+            f"/api/v1/threads/{thread['id']}/runs",
+            json={"query": "Analyze NVIDIA", "with_rag": True},
+        )
+
+    assert response.status_code == 202
+    run_id = response.json()["id"]
+    arq_pool.enqueue_job.assert_awaited_once_with("execute_run_task", run_id)
+
+
+@pytest.mark.anyio
 async def test_missing_resources_return_404():
     transport = httpx.ASGITransport(app=create_app(InMemoryRunStore()))
     missing_id = "00000000-0000-0000-0000-000000000000"

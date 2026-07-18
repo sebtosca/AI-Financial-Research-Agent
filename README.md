@@ -174,6 +174,29 @@ tested offline with an injectable fake model; a small `live`-marked test
 suite (`app/tests/test_routing_policy_live.py`) verifies the real classifier
 against realistic phrasing when `RUN_LIVE_AGENT_TESTS=true`.
 
+### Durable Worker Queue
+
+Set `REDIS_URL` to move agent execution off the API process and onto a
+separate `worker` process (`app/worker.py`, an `arq` task queue): `POST
+.../runs` enqueues a job instead of running it via FastAPI's in-process
+`BackgroundTasks`, so a queued run survives an API restart and multiple API
+replicas can safely share one pool of workers. SSE event delivery fans out
+through Redis pub/sub (`app/api/event_fanout.py`) rather than an in-process
+queue, so a client subscribed to one API replica still receives events for a
+run executing on a different worker process -- the `RunStore` interface
+(`subscribe`/`unsubscribe`/`append_event`) is unchanged, this is purely an
+internal implementation swap. Leave `REDIS_URL` empty to keep the original
+single-process behavior (execution via `BackgroundTasks`, SSE fan-out
+in-process) with no code changes needed -- useful for local development
+without a Redis instance running.
+
+```bash
+docker compose up -d redis worker api
+```
+
+The LangGraph conversational checkpointer is not yet Redis-backed (still
+`MemorySaver`, in-process) -- see Current Limitations and Roadmap.
+
 ## RAG Pipeline
 
 Private company reports are processed as follows:
@@ -202,6 +225,7 @@ Source documents and generated indexes are intentionally excluded from Git.
 | Retrieval | ChromaDB, OpenAI embeddings, PyPDF, tiktoken |
 | Backend | Python, FastAPI, Pydantic, SSE |
 | Persistence | PostgreSQL in production, SQLite locally, ChromaDB for vectors |
+| Task queue | arq, Redis (optional -- see Durable Worker Queue below) |
 | Frontend | Next.js, React, TypeScript, React Markdown, Lucide |
 | Observability | Prometheus, Grafana, LangSmith, structured logging |
 | Deployment | Docker, Docker Compose, Nginx |
@@ -523,12 +547,10 @@ or SSH tunnel for remote operator access.
 - Research output depends on third-party data availability and model quality.
 - Docker Compose uses PostgreSQL for durable run history. Local development
   defaults to SQLite unless `DATABASE_URL` is configured.
-- LangGraph conversational checkpoints use in-process memory and do not survive
-  an API restart; completed reports and run history do survive in the selected
-  database.
-- Live SSE subscriptions and agent execution remain process-local, so the
-  current deployment should run one API replica until execution is moved to a
-  worker and events are distributed through a broker.
+- LangGraph conversational checkpoints still use in-process memory and do not
+  survive a process restart mid-conversation (a known follow-up now that a
+  durable worker exists -- see Architecture below); completed reports and run
+  history always survive in the selected database regardless.
 - Authentication and role-based access control are not implemented.
 - The current RAG retriever uses semantic similarity without a reranker or
   hybrid lexical search.
@@ -537,7 +559,8 @@ or SSH tunnel for remote operator access.
 
 ## Roadmap
 
-- [ ] Move long-running agent execution to a durable worker queue
+- [x] Move long-running agent execution to a durable worker queue
+- [ ] Move the LangGraph conversational checkpointer to Redis (currently in-process `MemorySaver`)
 - [ ] Add authentication and role-based access control
 - [ ] Add a versioned RAG evaluation dataset and Ragas-style evaluation
 - [ ] Add hybrid retrieval, reranking, and document-level access controls
