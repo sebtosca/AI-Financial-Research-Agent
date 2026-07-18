@@ -385,9 +385,37 @@ npm run build
 
 The deterministic suite currently covers agent configuration, tool-error
 handling, API lifecycle behavior, SQLite persistence, RAG safety checks, golden
-retrieval queries, indexing, prompts, and multi-tool workflow synthesis. No
-accuracy or groundedness score is published yet; those metrics require a
-versioned evaluation dataset and repeatable evaluation pipeline.
+retrieval queries, indexing, prompts, and multi-tool workflow synthesis.
+
+### Evaluation harness
+
+A versioned golden dataset and evaluation pipeline live in `app/eval/`
+(`EVAL_DATASET_VERSION = "v1"`, ~10 cases spanning price/history/news/
+sentiment lookups, private-RAG queries, and full research/comparison
+requests). It measures:
+
+- **Tool-selection/trajectory accuracy** -- precision/recall/F1 of actual
+  vs. expected tool calls, and whether RAG engagement matched expectations.
+- **Groundedness/relevance** -- a zero-cost heuristic (vocabulary overlap)
+  runs by default; an opt-in LLM-as-judge path gives richer signal.
+- **Latency/cost** -- captured per run via Prometheus and persisted on the
+  run record (see Observability below).
+
+Run it directly:
+
+```bash
+python -m app.eval.run                          # routing-only, cheap
+python -m app.eval.run --full-agent --judge llm  # full pipeline, real cost
+python -m app.eval.run --report json
+```
+
+This is a live evaluation against real providers (requires
+`OPENAI_API_KEY`, and `TAVILY_API_KEY` for news-touching cases) and is
+intentionally separate from the pytest suite so it can be invoked directly
+from a CI job later without redesign. The scoring math itself (precision/
+recall, heuristic overlap, judge-response parsing) is unit tested offline
+with synthetic inputs; a `live`-marked suite (`test_eval_live.py`) exercises
+the real classifier/agent/judge end to end.
 
 ### Multi-provider chat/embedding models
 
@@ -412,12 +440,42 @@ The backend exposes these Prometheus metrics:
 - `financial_agent_active_runs`
 - `financial_agent_run_duration_seconds`
 - `financial_agent_tool_calls_total{tool,status}`
+- `financial_agent_tool_call_duration_seconds{tool}`
 - `financial_agent_sse_connections`
+- `financial_agent_routing_decisions_total{model_tier}`
+- `financial_agent_llm_tokens_total{model,direction}`
+- `financial_agent_llm_cost_usd_total{model}` (approximate -- see
+  `app/providers/pricing.py`)
 
-Grafana is provisioned with an agent overview dashboard. LangSmith can capture
-LLM and LangGraph traces when its environment variables are enabled. The
-frontend presents user-facing execution stages, while Grafana, Prometheus, and
-LangSmith remain operator tools and are not exposed directly in the browser UI.
+Per-run token counts and estimated cost are also persisted on the run record
+(`prompt_tokens`, `completion_tokens`, `estimated_cost_usd`), captured from
+each LLM response's `usage_metadata` -- the same field LangChain populates
+consistently across OpenAI/Anthropic/Google, so cost tracking needs no
+per-provider branching.
+
+Grafana is provisioned with an agent overview dashboard. The frontend presents
+user-facing execution stages, while Grafana, Prometheus, and LangSmith remain
+operator tools and are not exposed directly in the browser UI.
+
+### LangSmith production tracing
+
+When `LANGCHAIN_TRACING_V2=true`, every run is explicitly tagged and named
+(not just auto-instrumented) via `app/observability/tracing.py`: each trace
+carries `model_tier:<tier>`, `provider:<provider>`, and `rag_engaged:<bool>`
+tags plus `run_id`/`thread_id`/`matched_rules` metadata, so traces are
+filterable in the LangSmith UI by routing decision, not just an opaque blob
+per run. The trace's root run id is captured synchronously (via an explicit
+`LangChainTracer` callback, not just the global env-var auto-patch) and
+persisted as `RunRecord.langsmith_run_id`, so a run can be linked directly to
+its trace.
+
+`POST /api/v1/runs/{run_id}/feedback` persists feedback locally regardless of
+LangSmith (`FeedbackRecord`, stored alongside runs/events), and additionally
+forwards it to the run's LangSmith trace via `Client().create_feedback(...)`
+when tracing is enabled and the run has a captured trace id. LangSmith
+submission failures are logged and swallowed -- local persistence is the
+source of truth, LangSmith is best-effort. Set `LANGSMITH_FEEDBACK_ENABLED=false`
+to disable the LangSmith forwarding while keeping local feedback persistence.
 
 ## Docker Deployment
 

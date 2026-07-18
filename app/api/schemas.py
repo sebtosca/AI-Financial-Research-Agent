@@ -20,6 +20,7 @@ class RunStatus(str, Enum):
 
 class AgentStage(str, Enum):
     PLANNING = "planning"
+    ROUTING = "routing"
     STOCK_PRICE = "stock_price"
     STOCK_HISTORY = "stock_history"
     NEWS_SEARCH = "news_search"
@@ -31,6 +32,7 @@ class AgentStage(str, Enum):
 class EventType(str, Enum):
     RUN_CREATED = "run.created"
     RUN_STARTED = "run.started"
+    ROUTING_DECIDED = "routing.decided"
     STAGE_STARTED = "stage.started"
     TOOL_STARTED = "tool.started"
     TOOL_COMPLETED = "tool.completed"
@@ -69,6 +71,15 @@ class RunRecord(BaseModel):
     created_at: datetime = Field(default_factory=utc_now)
     started_at: datetime | None = None
     completed_at: datetime | None = None
+    model_tier: str | None = None
+    provider: str | None = None
+    model_name: str | None = None
+    tool_subset: list[str] | None = None
+    rag_engaged: bool | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    estimated_cost_usd: float | None = None
+    langsmith_run_id: str | None = None
 
 
 class RunEvent(BaseModel):
@@ -88,6 +99,14 @@ class ThreadDetail(ThreadRecord):
 class FeedbackCreate(BaseModel):
     rating: int = Field(ge=-1, le=1)
     comment: str | None = Field(default=None, max_length=2000)
+
+
+class FeedbackRecord(BaseModel):
+    id: UUID = Field(default_factory=uuid4)
+    run_id: UUID
+    rating: int
+    comment: str | None = None
+    created_at: datetime = Field(default_factory=utc_now)
 
 
 class HealthResponse(BaseModel):

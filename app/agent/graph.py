@@ -62,7 +62,7 @@ _ALL_TOOLS = {
 }
 
 
-def _tools_from_names(tool_names: tuple[str, ...]) -> list:
+def tools_from_names(tool_names: tuple[str, ...]) -> list:
     return [_ALL_TOOLS[name] for name in tool_names if name in _ALL_TOOLS]
 
 

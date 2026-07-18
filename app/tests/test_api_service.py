@@ -155,3 +155,87 @@ async def test_execute_applies_routing_decision(monkeypatch):
     _, kwargs = create_agent.call_args
     assert kwargs["model_tier"] == expected_decision.model_tier.value
     assert [tool.name for tool in kwargs["tools"]] == list(expected_decision.tool_names)
+
+
+@pytest.mark.anyio
+async def test_execute_persists_token_and_cost_aggregates(monkeypatch):
+    store = InMemoryRunStore()
+    service = AgentRunService(store)
+    thread = await store.create_thread(ThreadRecord(title="NVIDIA research"))
+    query = "What is the current price of NVDA?"
+    run = await store.create_run(RunRecord(thread_id=thread.id, query=query, with_rag=True))
+
+    decision = RoutingDecision(
+        model_tier=ModelTier.FAST,
+        provider="openai",
+        model_name="gpt-4o-mini",
+        tool_names=("get_stock_price",),
+        rag_engaged=False,
+        matched_rules=("llm_classifier:test",),
+    )
+    monkeypatch.setattr(service_module, "classify_query", Mock(return_value=decision))
+
+    final_message = AIMessage(content="NVDA is at $100.")
+    final_message.usage_metadata = {"input_tokens": 100, "output_tokens": 20, "total_tokens": 120}
+
+    class FakeAgent:
+        def stream(self, *args, **kwargs):
+            yield {"final": {"messages": [final_message]}}
+
+    monkeypatch.setattr(service_module, "create_financial_agent", Mock(return_value=FakeAgent()))
+
+    await service.execute(run.id)
+
+    updated_run = await store.get_run(run.id)
+    assert updated_run.prompt_tokens == 100
+    assert updated_run.completion_tokens == 20
+    assert updated_run.estimated_cost_usd == pytest.approx(
+        (100 / 1000) * 0.00015 + (20 / 1000) * 0.0006
+    )
+
+
+@pytest.mark.anyio
+async def test_tool_call_duration_is_observed_between_start_and_completion():
+    store = InMemoryRunStore()
+    service = AgentRunService(store)
+    run_id = uuid4()
+
+    await service._process_update(
+        run_id,
+        {
+            "agent": {
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "name": "get_stock_price",
+                                "args": {"ticker": "NVDA"},
+                                "id": "price-call",
+                                "type": "tool_call",
+                            }
+                        ],
+                    )
+                ]
+            }
+        },
+    )
+
+    assert "price-call" in service._tool_call_started
+
+    await service._process_update(
+        run_id,
+        {
+            "tools": {
+                "messages": [
+                    ToolMessage(
+                        content='{"status":"success"}',
+                        tool_call_id="price-call",
+                        name="get_stock_price",
+                    )
+                ]
+            }
+        },
+    )
+
+    assert "price-call" not in service._tool_call_started
