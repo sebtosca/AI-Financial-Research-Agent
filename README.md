@@ -206,6 +206,7 @@ Source documents and generated indexes are intentionally excluded from Git.
 | Observability | Prometheus, Grafana, LangSmith, structured logging |
 | Deployment | Docker, Docker Compose, Nginx |
 | Testing | pytest, HTTPX, ESLint, TypeScript |
+| CI/CD | GitHub Actions, Trivy (dependency + container scanning), GHCR |
 
 ## Repository Structure
 
@@ -374,6 +375,20 @@ available:
 pytest -q -m integration
 ```
 
+### Continuous Integration
+
+`.github/workflows/ci.yml` runs on every pull request and push to `main`:
+deterministic backend tests, frontend typecheck/lint/build, a Trivy filesystem
+scan of dependencies, and a Docker image build + Trivy image scan (fails on
+CRITICAL findings, exceptions tracked in `.trivyignore`). On `main`, both
+images are pushed to `ghcr.io`. `.github/workflows/nightly.yml` runs the live
+integration/`slow` suite on a schedule (never on pull requests, so real API
+keys stay out of PR/fork reach). `.github/workflows/eval.yml` runs the
+evaluation harness (`python -m app.eval.run --full-agent --judge llm`) weekly
+and uploads the report as a build artifact -- kept out of default CI since it
+costs real API money. Requiring these checks before merge is configured via
+GitHub branch protection (repository settings, not tracked in this repo).
+
 Validate the frontend:
 
 ```bash
@@ -527,7 +542,7 @@ or SSH tunnel for remote operator access.
 - [ ] Add a versioned RAG evaluation dataset and Ragas-style evaluation
 - [ ] Add hybrid retrieval, reranking, and document-level access controls
 - [ ] Add token, model-cost, and retrieval-quality metrics
-- [ ] Add CI/CD security, test, and container scanning workflows
+- [x] Add CI/CD security, test, and container scanning workflows
 - [ ] Add SEC filings, earnings reports, and additional market-data providers
 - [ ] Add portfolio-level comparisons and exportable reports
 
