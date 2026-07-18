@@ -17,3 +17,4 @@ prometheus-client==0.25.0
 httpx==0.28.1
 psycopg[binary]==3.2.13
 psycopg-pool==3.3.1
+langsmith==0.4.44

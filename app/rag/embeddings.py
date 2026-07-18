@@ -1,34 +1,28 @@
 import logging
-from langchain_openai import OpenAIEmbeddings
+from langchain_core.embeddings import Embeddings
 
 from app.config import (
     EMBEDDING_MODEL,
     LOG_LEVEL,
-    OPENAI_API_BASE,
-    OPENAI_API_KEY,
     REQUIRED_EMBEDDING_ENV_VARS,
     validate_required_environment,
 )
+from app.providers import build_embedding_model_from_config
 
 logger = logging.getLogger(__name__)
 
 def validate_environment() -> None:
     validate_required_environment(REQUIRED_EMBEDDING_ENV_VARS)
 
-def build_embedding_model() -> OpenAIEmbeddings:
+def build_embedding_model() -> Embeddings:
     validate_environment()
-
 
     logger.info(
         "Initializing embedding model | model=%s",
         EMBEDDING_MODEL,
     )
 
-    embedding_model = OpenAIEmbeddings(
-        model=EMBEDDING_MODEL,
-        api_key=OPENAI_API_KEY,
-        base_url=OPENAI_API_BASE,
-    )
+    embedding_model = build_embedding_model_from_config()
 
     logger.info(
         "Embedding model initialized | model=%s | use_case=%s",

@@ -4,7 +4,6 @@ from typing import Literal, Optional
 
 from dotenv import load_dotenv
 from langchain_core.tools import ToolException
-from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode
@@ -12,6 +11,7 @@ from langgraph.prebuilt import ToolNode
 from .nodes import create_agent_node, create_tool_node_with_logging
 from .prompts import PROMPT_VERSION, get_prompt
 from .state import SimpleAgentState
+from ..providers import get_chat_model_for_tier, get_default_chat_model
 from ..tools import (
     analyze_sentiment,
     get_stock_history,
@@ -48,6 +48,22 @@ def _default_tools(with_rag: bool) -> list:
         tools.append(query_private_database)
 
     return tools
+
+
+_ALL_TOOLS = {
+    tool.name: tool
+    for tool in (
+        get_stock_price,
+        get_stock_history,
+        search_financial_news,
+        analyze_sentiment,
+        query_private_database,
+    )
+}
+
+
+def _tools_from_names(tool_names: tuple[str, ...]) -> list:
+    return [_ALL_TOOLS[name] for name in tool_names if name in _ALL_TOOLS]
 
 
 def should_continue(state: SimpleAgentState) -> Literal["tools", "end"]:
@@ -88,28 +104,25 @@ def validate_environment() -> None:
         )
 
 
-def build_model(tools: list):
+def build_model(tools: list, *, model_tier: Optional[str] = None):
     """
     Initialize and configure the LLM with bound tools.
     """
 
     validate_environment()
 
-    model_name = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-    temperature = float(os.getenv("OPENAI_TEMPERATURE", "0"))
-
-    logger.info(
-        "Initializing model | model=%s | temperature=%.2f",
-        model_name,
-        temperature,
-    )
-
-    model = ChatOpenAI(
-        model=model_name,
-        temperature=temperature,
-        api_key=os.getenv("OPENAI_API_KEY"),
-        base_url=os.getenv("OPENAI_API_BASE") or None,
-    )
+    if model_tier:
+        logger.info("Initializing model | tier=%s", model_tier)
+        model = get_chat_model_for_tier(model_tier)
+    else:
+        model_name = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        temperature = float(os.getenv("OPENAI_TEMPERATURE", "0"))
+        logger.info(
+            "Initializing model | model=%s | temperature=%.2f",
+            model_name,
+            temperature,
+        )
+        model = get_default_chat_model()
 
     return model.bind_tools(tools)
 
@@ -119,6 +132,7 @@ def create_financial_agent(
     with_memory: bool = True,
     with_rag: bool = True,
     tools: Optional[list] = None,
+    model_tier: Optional[str] = None,
 ):
     """
     Create and compile the financial research agent graph.
@@ -129,6 +143,8 @@ def create_financial_agent(
         with_rag: Whether default tools include the private database tool.
         tools: Optional explicit tool list. When provided, it takes precedence
             over with_rag.
+        model_tier: Optional routing tier ("fast"/"capable") selecting the
+            provider/model. Defaults to the OPENAI_MODEL configuration.
     """
 
     if tools is None:
@@ -157,7 +173,7 @@ def create_financial_agent(
     try:
         system_prompt = get_prompt(agent_type)
 
-        model_with_tools = build_model(tools)
+        model_with_tools = build_model(tools, model_tier=model_tier)
 
         workflow = StateGraph(SimpleAgentState)
 

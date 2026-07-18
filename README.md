@@ -355,6 +355,21 @@ retrieval queries, indexing, prompts, and multi-tool workflow synthesis. No
 accuracy or groundedness score is published yet; those metrics require a
 versioned evaluation dataset and repeatable evaluation pipeline.
 
+### Multi-provider chat/embedding models
+
+Chat and embedding models are built through a small provider factory
+(`app/providers/`) instead of being hardcoded to OpenAI. Set `CHAT_PROVIDER`
+(or a per-tool override such as `SENTIMENT_PROVIDER`/`PRIVATE_DATABASE_PROVIDER`)
+and `EMBEDDING_PROVIDER` to `openai`, `anthropic`, or `google`. OpenAI is the
+only provider exercised against a live API in this repo today; Anthropic and
+Google adapters are implemented and covered by offline dispatch/config tests
+only. To use them for real, install the optional adapters and set the
+matching API key:
+
+```bash
+pip install -r requirements-optional.txt
+```
+
 ## Observability
 
 The backend exposes these Prometheus metrics:
