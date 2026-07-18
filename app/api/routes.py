@@ -1,13 +1,17 @@
 import asyncio
+from functools import partial
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
+from app.observability.tracing import submit_feedback
+
 from .metrics import SSE_CONNECTIONS
 from .schemas import (
     EventType,
     FeedbackCreate,
+    FeedbackRecord,
     HealthResponse,
     RunCreate,
     RunEvent,
@@ -98,9 +102,23 @@ async def create_feedback(
     payload: FeedbackCreate,
     request: Request,
 ) -> None:
-    if await _service(request).store.get_run(run_id) is None:
+    service = _service(request)
+    run = await service.store.get_run(run_id)
+    if run is None:
         raise HTTPException(status_code=404, detail="Run not found")
-    _ = payload
+
+    feedback = FeedbackRecord(run_id=run_id, rating=payload.rating, comment=payload.comment)
+    await service.store.add_feedback(feedback)
+
+    if run.langsmith_run_id:
+        await asyncio.to_thread(
+            partial(
+                submit_feedback,
+                run.langsmith_run_id,
+                rating=payload.rating,
+                comment=payload.comment,
+            )
+        )
 
 
 @router.get("/runs/{run_id}/events")

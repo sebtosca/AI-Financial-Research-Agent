@@ -9,7 +9,14 @@ from uuid import UUID
 from psycopg.types.json import Jsonb
 from psycopg_pool import AsyncConnectionPool
 
-from .schemas import RunEvent, RunRecord, RunStatus, ThreadDetail, ThreadRecord
+from .schemas import (
+    FeedbackRecord,
+    RunEvent,
+    RunRecord,
+    RunStatus,
+    ThreadDetail,
+    ThreadRecord,
+)
 
 
 class RunStore(Protocol):
@@ -31,6 +38,8 @@ class RunStore(Protocol):
     async def cancel(self, run_id: UUID) -> bool: ...
     async def is_cancelled(self, run_id: UUID) -> bool: ...
     async def latest_event_sequence(self, run_id: UUID) -> int: ...
+    async def add_feedback(self, feedback: FeedbackRecord) -> None: ...
+    async def list_feedback(self, run_id: UUID) -> list[FeedbackRecord]: ...
 
 
 async def _no_op() -> None:
@@ -48,6 +57,7 @@ class InMemoryRunStore:
         self._threads: dict[UUID, ThreadRecord] = {}
         self._runs: dict[UUID, RunRecord] = {}
         self._events: dict[UUID, list[RunEvent]] = defaultdict(list)
+        self._feedback: dict[UUID, list[FeedbackRecord]] = defaultdict(list)
         self._subscribers: dict[UUID, set[asyncio.Queue[RunEvent]]] = defaultdict(set)
         self._cancelled: set[UUID] = set()
         self._lock = asyncio.Lock()
@@ -131,6 +141,14 @@ class InMemoryRunStore:
         async with self._lock:
             return run_id in self._cancelled
 
+    async def add_feedback(self, feedback: FeedbackRecord) -> None:
+        async with self._lock:
+            self._feedback[feedback.run_id].append(feedback)
+
+    async def list_feedback(self, run_id: UUID) -> list[FeedbackRecord]:
+        async with self._lock:
+            return list(self._feedback[run_id])
+
     async def latest_event_sequence(self, run_id: UUID) -> int:
         async with self._lock:
             events = self._events[run_id]
@@ -180,6 +198,13 @@ class SqliteRunStore:
             );
             CREATE INDEX IF NOT EXISTS events_run_sequence
                 ON events(run_id, sequence);
+            CREATE TABLE IF NOT EXISTS feedback (
+                id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                data TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS feedback_run_id ON feedback(run_id);
             """
         )
         self._connection.commit()
@@ -302,6 +327,27 @@ class SqliteRunStore:
         async with self._lock:
             return run_id in self._cancelled
 
+    async def add_feedback(self, feedback: FeedbackRecord) -> None:
+        async with self._lock:
+            self._connection.execute(
+                "INSERT INTO feedback (id, run_id, created_at, data) VALUES (?, ?, ?, ?)",
+                (
+                    str(feedback.id),
+                    str(feedback.run_id),
+                    feedback.created_at.isoformat(),
+                    feedback.model_dump_json(),
+                ),
+            )
+            self._connection.commit()
+
+    async def list_feedback(self, run_id: UUID) -> list[FeedbackRecord]:
+        async with self._lock:
+            rows = self._connection.execute(
+                "SELECT data FROM feedback WHERE run_id = ? ORDER BY created_at",
+                (str(run_id),),
+            ).fetchall()
+        return [FeedbackRecord.model_validate_json(row["data"]) for row in rows]
+
     async def latest_event_sequence(self, run_id: UUID) -> int:
         async with self._lock:
             row = self._connection.execute(
@@ -368,6 +414,19 @@ class PostgresRunStore:
         """
         CREATE INDEX IF NOT EXISTS research_events_run_sequence_idx
             ON research_run_events(run_id, sequence)
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS research_run_feedback (
+            id UUID PRIMARY KEY,
+            run_id UUID NOT NULL REFERENCES research_runs(id)
+                ON DELETE CASCADE,
+            created_at TIMESTAMPTZ NOT NULL,
+            data JSONB NOT NULL
+        )
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS research_feedback_run_id_idx
+            ON research_run_feedback(run_id)
         """,
     )
 
@@ -596,8 +655,30 @@ class PostgresRunStore:
             row = await cursor.fetchone()
         return int(row[0]) if row else 0
 
+    async def add_feedback(self, feedback: FeedbackRecord) -> None:
+        async with self._pool.connection() as connection:
+            await connection.execute(
+                """
+                INSERT INTO research_run_feedback (id, run_id, created_at, data)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (feedback.id, feedback.run_id, feedback.created_at, _json(feedback)),
+            )
 
-def _json(record: ThreadRecord | RunRecord | RunEvent) -> Jsonb:
+    async def list_feedback(self, run_id: UUID) -> list[FeedbackRecord]:
+        async with self._pool.connection() as connection:
+            cursor = await connection.execute(
+                """
+                SELECT data FROM research_run_feedback
+                WHERE run_id = %s ORDER BY created_at
+                """,
+                (run_id,),
+            )
+            rows = await cursor.fetchall()
+        return [FeedbackRecord.model_validate(row[0]) for row in rows]
+
+
+def _json(record: ThreadRecord | RunRecord | RunEvent | FeedbackRecord) -> Jsonb:
     return Jsonb(record.model_dump(mode="json"))
 
 

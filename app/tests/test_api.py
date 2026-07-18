@@ -1,8 +1,9 @@
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import httpx
 import pytest
 
+from app.api import routes as routes_module
 from app.api.schemas import EventType, RunEvent, RunRecord, RunStatus, ThreadRecord
 from app.api.store import InMemoryRunStore
 from app.main import create_app
@@ -63,6 +64,60 @@ async def test_missing_resources_return_404():
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         assert (await client.get(f"/api/v1/threads/{missing_id}")).status_code == 404
         assert (await client.get(f"/api/v1/runs/{missing_id}")).status_code == 404
+        assert (
+            await client.post(f"/api/v1/runs/{missing_id}/feedback", json={"rating": 1})
+        ).status_code == 404
+
+
+@pytest.mark.anyio
+async def test_create_feedback_persists_locally(monkeypatch):
+    submit_feedback = Mock()
+    monkeypatch.setattr(routes_module, "submit_feedback", submit_feedback)
+
+    store = InMemoryRunStore()
+    thread = await store.create_thread(ThreadRecord(title="NVIDIA research"))
+    run = await store.create_run(
+        RunRecord(thread_id=thread.id, query="Analyze NVIDIA", with_rag=True)
+    )
+    transport = httpx.ASGITransport(app=create_app(store))
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            f"/api/v1/runs/{run.id}/feedback",
+            json={"rating": 1, "comment": "Helpful report"},
+        )
+
+    assert response.status_code == 204
+    stored_feedback = await store.list_feedback(run.id)
+    assert len(stored_feedback) == 1
+    assert stored_feedback[0].rating == 1
+    assert stored_feedback[0].comment == "Helpful report"
+    submit_feedback.assert_not_called()  # run has no langsmith_run_id
+
+
+@pytest.mark.anyio
+async def test_create_feedback_forwards_to_langsmith_when_run_has_trace_id(monkeypatch):
+    submit_feedback = Mock()
+    monkeypatch.setattr(routes_module, "submit_feedback", submit_feedback)
+
+    store = InMemoryRunStore()
+    thread = await store.create_thread(ThreadRecord(title="NVIDIA research"))
+    run = await store.create_run(
+        RunRecord(thread_id=thread.id, query="Analyze NVIDIA", with_rag=True)
+    )
+    await store.update_run(run.id, langsmith_run_id="fake-langsmith-run-id")
+    transport = httpx.ASGITransport(app=create_app(store))
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            f"/api/v1/runs/{run.id}/feedback",
+            json={"rating": -1, "comment": "Missed a source"},
+        )
+
+    assert response.status_code == 204
+    submit_feedback.assert_called_once_with(
+        "fake-langsmith-run-id", rating=-1, comment="Missed a source"
+    )
 
 
 @pytest.mark.anyio
