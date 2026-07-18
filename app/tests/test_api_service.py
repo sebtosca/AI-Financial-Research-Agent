@@ -1,11 +1,14 @@
+from unittest.mock import Mock
 from uuid import uuid4
 
 import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 
-from app.api.schemas import AgentStage, EventType
+from app.api import service as service_module
+from app.api.schemas import AgentStage, EventType, RunRecord, ThreadRecord
 from app.api.service import AgentRunService
 from app.api.store import InMemoryRunStore
+from app.routing.policy import ModelTier, RoutingDecision
 
 
 @pytest.fixture
@@ -100,3 +103,55 @@ async def test_process_update_marks_tool_error_as_failed():
 
     assert events[0].type == EventType.TOOL_FAILED
     assert events[0].stage == AgentStage.PRIVATE_RAG
+
+
+@pytest.mark.anyio
+async def test_execute_applies_routing_decision(monkeypatch):
+    store = InMemoryRunStore()
+    service = AgentRunService(store)
+    thread = await store.create_thread(ThreadRecord(title="NVIDIA research"))
+    query = "What is the current price of NVDA?"
+    run = await store.create_run(
+        RunRecord(thread_id=thread.id, query=query, with_rag=True)
+    )
+
+    expected_decision = RoutingDecision(
+        model_tier=ModelTier.FAST,
+        provider="openai",
+        model_name="gpt-4o-mini",
+        tool_names=("get_stock_price",),
+        rag_engaged=False,
+        matched_rules=("llm_classifier:Simple price lookup.",),
+    )
+    classify = Mock(return_value=expected_decision)
+    monkeypatch.setattr(service_module, "classify_query", classify)
+
+    class FakeAgent:
+        def stream(self, *args, **kwargs):
+            yield {"final": {"messages": [AIMessage(content="NVDA is at $100.")]}}
+
+    create_agent = Mock(return_value=FakeAgent())
+    monkeypatch.setattr(service_module, "create_financial_agent", create_agent)
+
+    await service.execute(run.id)
+
+    classify.assert_called_once_with(query, with_rag_requested=True)
+
+    updated_run = await store.get_run(run.id)
+    assert updated_run.model_tier == expected_decision.model_tier.value
+    assert updated_run.provider == expected_decision.provider
+    assert updated_run.model_name == expected_decision.model_name
+    assert updated_run.tool_subset == list(expected_decision.tool_names)
+    assert updated_run.rag_engaged == expected_decision.rag_engaged
+
+    events = await store.events_after(run.id, 0)
+    routing_events = [event for event in events if event.type == EventType.ROUTING_DECIDED]
+    assert len(routing_events) == 1
+    assert routing_events[0].stage == AgentStage.ROUTING
+    assert routing_events[0].payload["model_tier"] == expected_decision.model_tier.value
+    assert routing_events[0].payload["tools"] == list(expected_decision.tool_names)
+
+    create_agent.assert_called_once()
+    _, kwargs = create_agent.call_args
+    assert kwargs["model_tier"] == expected_decision.model_tier.value
+    assert [tool.name for tool in kwargs["tools"]] == list(expected_decision.tool_names)

@@ -97,6 +97,8 @@ flowchart LR
     UI -->|REST| API[FastAPI]
     API --> RUN[Run service]
     RUN --> AGENT[LangGraph agent]
+    RUN --> POLICY{Routing policy}
+    POLICY -->|tier, tools, RAG| AGENT
     AGENT --> ROUTER{Tool calls?}
     ROUTER -->|Yes| TOOLS[Tool node]
     TOOLS --> PRICE[Yahoo Finance price]
@@ -139,6 +141,38 @@ sequenceDiagram
     Agent-->>API: Final structured report
     API-->>UI: Completion event and report
 ```
+
+### Policy-Based Routing
+
+Before invoking the agent, each run is classified by an LLM-based routing
+policy (`app/routing/policy.py`) that decides:
+
+- **Model tier**: `fast` (e.g. `gpt-4o-mini`) for narrow factual lookups, or
+  `capable` (e.g. `gpt-4o`) for comparison/full-analysis queries.
+- **Tool subset**: a narrower tool set for simple queries (e.g. just
+  `get_stock_price` for a plain price lookup) versus the full tool set for
+  research-style queries.
+- **RAG engagement**: whether the private-database tool is included, subject
+  to the caller's `with_rag` flag as a hard off-switch.
+
+The classifier itself always runs on the cheap `fast`-tier model with
+structured output, regardless of which tier it ultimately routes the query
+to, so the extra classification call stays low-cost. If classification fails
+for any reason (timeout, provider error), routing falls back to a safe
+maximal default -- capable tier, full tool set -- the same graceful-
+degradation pattern used by the sentiment-analysis tool's keyword fallback.
+
+The decision is persisted on the run record (`model_tier`, `provider`,
+`model_name`, `tool_subset`, `rag_engaged`) and emitted as a `routing.decided`
+SSE event -- including the classifier's one-sentence reasoning -- before any
+tool activity, so it's auditable the same way tool calls are. Set
+`ROUTING_ENABLED=false` to bypass the classifier entirely and restore the
+legacy behavior (always the full tool set, single model, no extra LLM call).
+
+Classification logic (structured-output parsing, fallback behavior) is unit
+tested offline with an injectable fake model; a small `live`-marked test
+suite (`app/tests/test_routing_policy_live.py`) verifies the real classifier
+against realistic phrasing when `RUN_LIVE_AGENT_TESTS=true`.
 
 ## RAG Pipeline
 
