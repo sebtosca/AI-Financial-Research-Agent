@@ -60,7 +60,7 @@ jobs:
           output: trivy-fs-results.sarif
           severity: CRITICAL,HIGH
           trivyignores: .trivyignore
-      - uses: github/codeql-action/upload-sarif@v3
+      - uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: trivy-fs-results.sarif
@@ -95,6 +95,7 @@ jobs:
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
       - name: Trivy scan API image
+        if: always()
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: argent-api:ci
@@ -104,6 +105,7 @@ jobs:
           trivyignores: .trivyignore
           exit-code: "1"
       - name: Trivy scan frontend image
+        if: always()
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: argent-frontend:ci
@@ -112,11 +114,11 @@ jobs:
           severity: CRITICAL
           trivyignores: .trivyignore
           exit-code: "1"
-      - uses: github/codeql-action/upload-sarif@v3
+      - uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: trivy-api-results.sarif
-      - uses: github/codeql-action/upload-sarif@v3
+      - uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: trivy-frontend-results.sarif
