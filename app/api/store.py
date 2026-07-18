@@ -3,12 +3,13 @@ import sqlite3
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 from uuid import UUID
 
 from psycopg.types.json import Jsonb
 from psycopg_pool import AsyncConnectionPool
 
+from .event_fanout import EventFanout
 from .schemas import (
     FeedbackRecord,
     RunEvent,
@@ -158,19 +159,22 @@ class InMemoryRunStore:
 class SqliteRunStore:
     """Persistent run store for a single API process."""
 
-    def __init__(self, database_path: Path) -> None:
+    def __init__(self, database_path: Path, redis_client: Any | None = None) -> None:
         database_path.parent.mkdir(parents=True, exist_ok=True)
         self._connection = sqlite3.connect(database_path, check_same_thread=False)
         self._connection.row_factory = sqlite3.Row
-        self._subscribers: dict[UUID, set[asyncio.Queue[RunEvent]]] = defaultdict(set)
+        self._fanout = EventFanout(redis_client)
         self._cancelled: set[UUID] = set()
         self._lock = asyncio.Lock()
         self._create_schema()
 
-    initialize = staticmethod(_no_op)
     healthcheck = staticmethod(_healthy)
 
+    async def initialize(self) -> None:
+        await self._fanout.start()
+
     async def close(self) -> None:
+        await self._fanout.stop()
         async with self._lock:
             self._connection.close()
 
@@ -283,9 +287,7 @@ class SqliteRunStore:
                 ),
             )
             self._connection.commit()
-            subscribers = list(self._subscribers[event.run_id])
-        for queue in subscribers:
-            await queue.put(event)
+        await self._fanout.publish(event)
 
     async def events_after(self, run_id: UUID, sequence: int) -> list[RunEvent]:
         async with self._lock:
@@ -297,14 +299,10 @@ class SqliteRunStore:
         return [RunEvent.model_validate_json(row["data"]) for row in rows]
 
     async def subscribe(self, run_id: UUID) -> asyncio.Queue[RunEvent]:
-        queue: asyncio.Queue[RunEvent] = asyncio.Queue()
-        async with self._lock:
-            self._subscribers[run_id].add(queue)
-        return queue
+        return self._fanout.subscribe(run_id)
 
     async def unsubscribe(self, run_id: UUID, queue: asyncio.Queue[RunEvent]) -> None:
-        async with self._lock:
-            self._subscribers[run_id].discard(queue)
+        self._fanout.unsubscribe(run_id, queue)
 
     async def cancel(self, run_id: UUID) -> bool:
         async with self._lock:
@@ -437,6 +435,7 @@ class PostgresRunStore:
         min_size: int = 1,
         max_size: int = 10,
         timeout: float = 30.0,
+        redis_client: Any | None = None,
     ) -> None:
         if not database_url:
             raise ValueError("database_url is required")
@@ -450,16 +449,17 @@ class PostgresRunStore:
             timeout=timeout,
             open=False,
         )
-        self._subscribers: dict[UUID, set[asyncio.Queue[RunEvent]]] = defaultdict(set)
-        self._subscriber_lock = asyncio.Lock()
+        self._fanout = EventFanout(redis_client)
 
     async def initialize(self) -> None:
         await self._pool.open(wait=True)
         async with self._pool.connection() as connection:
             for statement in self._SCHEMA:
                 await connection.execute(statement)
+        await self._fanout.start()
 
     async def close(self) -> None:
+        await self._fanout.stop()
         await self._pool.close()
 
     async def healthcheck(self) -> bool:
@@ -585,10 +585,7 @@ class PostgresRunStore:
                 (event.id, event.run_id, event.sequence, _json(event)),
             )
 
-        async with self._subscriber_lock:
-            subscribers = list(self._subscribers[event.run_id])
-        for queue in subscribers:
-            await queue.put(event)
+        await self._fanout.publish(event)
 
     async def events_after(self, run_id: UUID, sequence: int) -> list[RunEvent]:
         async with self._pool.connection() as connection:
@@ -604,14 +601,10 @@ class PostgresRunStore:
         return [RunEvent.model_validate(row[0]) for row in rows]
 
     async def subscribe(self, run_id: UUID) -> asyncio.Queue[RunEvent]:
-        queue: asyncio.Queue[RunEvent] = asyncio.Queue()
-        async with self._subscriber_lock:
-            self._subscribers[run_id].add(queue)
-        return queue
+        return self._fanout.subscribe(run_id)
 
     async def unsubscribe(self, run_id: UUID, queue: asyncio.Queue[RunEvent]) -> None:
-        async with self._subscriber_lock:
-            self._subscribers[run_id].discard(queue)
+        self._fanout.unsubscribe(run_id, queue)
 
     async def cancel(self, run_id: UUID) -> bool:
         terminal_statuses = [
@@ -689,6 +682,7 @@ def create_run_store(
     postgres_min_size: int = 1,
     postgres_max_size: int = 10,
     postgres_timeout: float = 30.0,
+    redis_client: Any | None = None,
 ) -> RunStore:
     if database_url:
         return PostgresRunStore(
@@ -696,5 +690,6 @@ def create_run_store(
             min_size=postgres_min_size,
             max_size=postgres_max_size,
             timeout=postgres_timeout,
+            redis_client=redis_client,
         )
-    return SqliteRunStore(sqlite_path)
+    return SqliteRunStore(sqlite_path, redis_client=redis_client)

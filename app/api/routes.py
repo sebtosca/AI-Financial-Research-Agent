@@ -74,7 +74,13 @@ async def create_run(
     )
     await service.store.create_run(run)
     await service.emit(run.id, EventType.RUN_CREATED)
-    background_tasks.add_task(service.execute, run.id)
+
+    arq_pool = request.app.state.arq_pool
+    if arq_pool is not None:
+        await arq_pool.enqueue_job("execute_run_task", str(run.id))
+    else:
+        background_tasks.add_task(service.execute, run.id)
+
     return run
 
 

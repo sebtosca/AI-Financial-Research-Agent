@@ -29,11 +29,14 @@ services:
       DATABASE_POOL_MIN_SIZE: 1
       DATABASE_POOL_MAX_SIZE: 10
       DATABASE_POOL_TIMEOUT: 30
+      REDIS_URL: redis://redis:6379/0
     volumes:
       - chroma_data:/data/chroma
       - rag_documents:/data/documents:ro
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       rag-indexer:
         condition: service_completed_successfully
@@ -43,6 +46,45 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      CHROMA_DB_DIR: /data/chroma
+      DOCS_PATH: /data/documents
+      ZIP_FILE: /data/documents/Companies-AI-Initiatives.zip
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DATABASE_POOL_MIN_SIZE: 1
+      DATABASE_POOL_MAX_SIZE: 10
+      DATABASE_POOL_TIMEOUT: 30
+      REDIS_URL: redis://redis:6379/0
+    command: ["arq", "app.worker.WorkerSettings"]
+    volumes:
+      - chroma_data:/data/chroma
+      - rag_documents:/data/documents:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rag-indexer:
+        condition: service_completed_successfully
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   rag-indexer:
     build:
@@ -122,3 +164,4 @@ volumes:
   rag_documents:
   prometheus_data:
   grafana_data:
+  redis_data:
