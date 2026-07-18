@@ -76,7 +76,7 @@ def query_private_database_test(query: str) -> str:
 
 def test_enhanced_agent_combines_financial_news_sentiment_and_rag(monkeypatch):
     model = ScriptedModel()
-    monkeypatch.setattr(graph_module, "build_model", lambda tools: model)
+    monkeypatch.setattr(graph_module, "build_model", lambda tools, **kwargs: model)
 
     agent = graph_module.create_financial_agent(
         agent_type="full",

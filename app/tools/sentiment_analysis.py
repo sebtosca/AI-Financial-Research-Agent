@@ -6,14 +6,16 @@ from typing import Any, Dict
 
 from dotenv import load_dotenv
 from langchain_core.tools import tool
-from langchain_openai import ChatOpenAI
+
+from app.config import SENTIMENT_MODEL, SENTIMENT_PROVIDER, SENTIMENT_TEMPERATURE
+from app.providers import build_chat_model
 
 load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-MODEL_NAME = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-TEMPERATURE = float(os.getenv("OPENAI_TEMPERATURE", "0"))
+MODEL_NAME = SENTIMENT_MODEL
+TEMPERATURE = SENTIMENT_TEMPERATURE
 
 
 def _utc_timestamp() -> str:
@@ -28,14 +30,15 @@ def _validate_text(text: str) -> str:
 
 
 def _validate_environment() -> None:
-    if not os.getenv("OPENAI_API_KEY"):
+    if SENTIMENT_PROVIDER == "openai" and not os.getenv("OPENAI_API_KEY"):
         raise EnvironmentError("OPENAI_API_KEY is missing from environment")
 
 
-def _build_model() -> ChatOpenAI:
+def _build_model():
     _validate_environment()
 
-    return ChatOpenAI(
+    return build_chat_model(
+        provider=SENTIMENT_PROVIDER,
         model=MODEL_NAME,
         temperature=TEMPERATURE,
         api_key=os.getenv("OPENAI_API_KEY"),

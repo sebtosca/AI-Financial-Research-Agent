@@ -1,0 +1,7 @@
+# Optional multi-provider adapters.
+# Install with: pip install -r requirements-optional.txt
+# Only needed when CHAT_PROVIDER/EMBEDDING_PROVIDER (or a per-tool *_PROVIDER
+# override) is set to "anthropic" or "google". Not required for the default
+# OpenAI-only configuration.
+langchain-anthropic==0.3.14
+langchain-google-genai==2.1.0

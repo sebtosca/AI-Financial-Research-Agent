@@ -6,7 +6,6 @@ from langchain_community.vectorstores import Chroma
 from langchain_core.documents import Document
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import ToolException, tool
-from langchain_openai import ChatOpenAI
 
 from app.config import (
     CHROMA_COLLECTION_NAME,
@@ -19,12 +18,14 @@ from app.config import (
     PRIVATE_DATABASE_MAX_RETRIES,
     PRIVATE_DATABASE_MODEL,
     PRIVATE_DATABASE_NO_RESULTS_MESSAGE,
+    PRIVATE_DATABASE_PROVIDER,
     PRIVATE_DATABASE_SYSTEM_PROMPT,
     PRIVATE_DATABASE_TEMPERATURE,
     PRIVATE_DATABASE_REQUEST_TIMEOUT,
     REQUIRED_PRIVATE_DATABASE_ENV_VARS,
     validate_required_environment,
 )
+from app.providers import build_chat_model
 from app.rag.embeddings import build_embedding_model
 from app.rag.retriever import build_retriever
 
@@ -71,7 +72,7 @@ def _get_retriever():
 
 
 @lru_cache(maxsize=1)
-def _get_model() -> ChatOpenAI:
+def _get_model():
     validate_required_environment(REQUIRED_PRIVATE_DATABASE_ENV_VARS)
 
     logger.info(
@@ -80,7 +81,8 @@ def _get_model() -> ChatOpenAI:
         PRIVATE_DATABASE_TEMPERATURE,
     )
 
-    return ChatOpenAI(
+    return build_chat_model(
+        provider=PRIVATE_DATABASE_PROVIDER,
         model=PRIVATE_DATABASE_MODEL,
         temperature=PRIVATE_DATABASE_TEMPERATURE,
         api_key=OPENAI_API_KEY,

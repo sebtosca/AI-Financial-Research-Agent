@@ -88,12 +88,27 @@ EMBEDDING_MODEL: str = os.getenv(
     "text-embedding-3-small",
 )
 
+# Multi-provider chat/embedding selection
+CHAT_PROVIDER: str = os.getenv("CHAT_PROVIDER", "openai")
+EMBEDDING_PROVIDER: str = os.getenv("EMBEDDING_PROVIDER", "openai")
+
+# Anthropic
+ANTHROPIC_API_KEY: str | None = os.getenv("ANTHROPIC_API_KEY")
+ANTHROPIC_API_BASE: str | None = os.getenv("ANTHROPIC_API_BASE") or None
+
+# Google
+GOOGLE_API_KEY: str | None = os.getenv("GOOGLE_API_KEY")
+
 # LangSmith
 LANGCHAIN_TRACING_V2: bool = _get_bool("LANGCHAIN_TRACING_V2", False)
 LANGCHAIN_API_KEY: str | None = os.getenv("LANGCHAIN_API_KEY")
 LANGCHAIN_PROJECT: str = os.getenv(
     "LANGCHAIN_PROJECT",
     "financial-research-agent",
+)
+LANGSMITH_FEEDBACK_ENABLED: bool = _get_bool(
+    "LANGSMITH_FEEDBACK_ENABLED",
+    LANGCHAIN_TRACING_V2,
 )
 
 # Tavily
@@ -133,6 +148,7 @@ RETRIEVER_TOP_K: int = _get_int("RETRIEVER_TOP_K", 10)
 RETRIEVER_SEARCH_TYPE: str = os.getenv("RETRIEVER_SEARCH_TYPE", "similarity")
 
 # Private database tool
+PRIVATE_DATABASE_PROVIDER: str = os.getenv("PRIVATE_DATABASE_PROVIDER", CHAT_PROVIDER)
 PRIVATE_DATABASE_MODEL: str = os.getenv(
     "PRIVATE_DATABASE_MODEL",
     OPENAI_MODEL,
@@ -182,8 +198,26 @@ STOCK_HISTORY_DEFAULT_PERIOD: str = os.getenv(
     "1y",
 )
 
+# Sentiment analysis tool
+SENTIMENT_PROVIDER: str = os.getenv("SENTIMENT_PROVIDER", CHAT_PROVIDER)
+SENTIMENT_MODEL: str = os.getenv("SENTIMENT_MODEL", OPENAI_MODEL)
+SENTIMENT_TEMPERATURE: float = _get_float("SENTIMENT_TEMPERATURE", OPENAI_TEMPERATURE)
+
+# Policy-based routing
+ROUTING_ENABLED: bool = _get_bool("ROUTING_ENABLED", True)
+ROUTING_TIER_PROVIDER: dict[str, str] = {
+    "FAST": os.getenv("ROUTING_FAST_PROVIDER", "openai"),
+    "CAPABLE": os.getenv("ROUTING_CAPABLE_PROVIDER", "openai"),
+}
+ROUTING_TIER_MODEL: dict[str, str] = {
+    "FAST": os.getenv("ROUTING_FAST_MODEL", "gpt-4o-mini"),
+    "CAPABLE": os.getenv("ROUTING_CAPABLE_MODEL", "gpt-4o"),
+}
+
 REQUIRED_AGENT_ENV_VARS: tuple[str, ...] = ("OPENAI_API_KEY",)
 REQUIRED_EMBEDDING_ENV_VARS: tuple[str, ...] = ("OPENAI_API_KEY",)
 REQUIRED_SENTIMENT_ENV_VARS: tuple[str, ...] = ("OPENAI_API_KEY",)
 REQUIRED_TAVILY_ENV_VARS: tuple[str, ...] = ("TAVILY_API_KEY",)
 REQUIRED_PRIVATE_DATABASE_ENV_VARS: tuple[str, ...] = ("OPENAI_API_KEY",)
+REQUIRED_ANTHROPIC_ENV_VARS: tuple[str, ...] = ("ANTHROPIC_API_KEY",)
+REQUIRED_GOOGLE_ENV_VARS: tuple[str, ...] = ("GOOGLE_API_KEY",)
