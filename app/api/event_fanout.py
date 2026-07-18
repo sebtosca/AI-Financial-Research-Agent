@@ -42,6 +42,10 @@ class EventFanout:
     async def stop(self) -> None:
         if self._listener_task is not None:
             self._listener_task.cancel()
+            try:
+                await self._listener_task
+            except asyncio.CancelledError:
+                pass
             self._listener_task = None
         if self._pubsub is not None:
             await self._pubsub.aclose()

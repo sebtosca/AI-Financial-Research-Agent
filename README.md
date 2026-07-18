@@ -184,7 +184,7 @@ replicas can safely share one pool of workers. SSE event delivery fans out
 through Redis pub/sub (`app/api/event_fanout.py`) rather than an in-process
 queue, so a client subscribed to one API replica still receives events for a
 run executing on a different worker process -- the `RunStore` interface
-(`subscribe`/`unsubscribe`/`append_event`) is unchanged, this is purely an
+(`subscribe`/`unsubscribe`/`append_event`) is unchanged; this is purely an
 internal implementation swap. Leave `REDIS_URL` empty to keep the original
 single-process behavior (execution via `BackgroundTasks`, SSE fan-out
 in-process) with no code changes needed -- useful for local development
