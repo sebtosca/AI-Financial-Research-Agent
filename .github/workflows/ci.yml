@@ -64,6 +64,7 @@ jobs:
         if: always()
         with:
           sarif_file: trivy-fs-results.sarif
+          category: trivy-fs
 
   docker-build:
     runs-on: ubuntu-latest
@@ -118,10 +119,12 @@ jobs:
         if: always()
         with:
           sarif_file: trivy-api-results.sarif
+          category: trivy-api-image
       - uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: trivy-frontend-results.sarif
+          category: trivy-frontend-image
 
   docker-publish:
     runs-on: ubuntu-latest
