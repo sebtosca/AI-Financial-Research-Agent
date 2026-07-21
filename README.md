@@ -197,6 +197,32 @@ docker compose up -d redis worker api
 The LangGraph conversational checkpointer is not yet Redis-backed (still
 `MemorySaver`, in-process) -- see Current Limitations and Roadmap.
 
+### Authentication and Authorization
+
+Every API route except `/health/live` and `/health/ready` requires
+`Authorization: Bearer <key>`. Scope is API-key based with a role baked into
+each key (`user` or `admin`) rather than full JWT -- appropriate at this
+project's scale, and the same key record reuses cleanly as JWT claims later
+if needed. Keys are stored hashed (SHA-256, salted via `AUTH_API_KEY_SALT`);
+the raw key is only ever shown once, at creation time.
+
+- `user` keys can create threads/runs, and only see their own -- threads and
+  runs created before auth existed (`owner_key_id` is `null`) are visible to
+  `admin` keys only, a fail-closed default rather than treating unowned
+  resources as public.
+- `admin` keys can see everything and manage API keys via
+  `POST/GET /api/v1/admin/api-keys` and `DELETE /api/v1/admin/api-keys/{id}`.
+- Set `AUTH_BOOTSTRAP_ADMIN_KEY` to seed an initial admin key on startup
+  (idempotent -- safe to leave set across restarts), then create further
+  keys through the admin endpoint and rotate/revoke the bootstrap key.
+
+```bash
+curl -X POST http://localhost/backend/api/v1/admin/api-keys \
+  -H "Authorization: Bearer $AUTH_BOOTSTRAP_ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"label": "my-frontend", "role": "user"}'
+```
+
 ## RAG Pipeline
 
 Private company reports are processed as follows:
@@ -347,6 +373,20 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 ### 6. Start the frontend
 
+The frontend calls the same authenticated API as everything else (see
+Authentication and Authorization below), so it needs its own key. Mint a
+`user`-role key with the backend running and `AUTH_BOOTSTRAP_ADMIN_KEY` set,
+then create `frontend/.env.local` (already covered by `.gitignore`) with it:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/admin/api-keys \
+  -H "Authorization: Bearer $AUTH_BOOTSTRAP_ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"label": "frontend-dev", "role": "user"}'
+# -> copy the returned key into frontend/.env.local:
+# NEXT_PUBLIC_API_KEY=<key>
+```
+
 In another terminal:
 
 ```bash
@@ -367,21 +407,25 @@ Open `http://localhost:3000`.
 
 ## API Workflow
 
-The frontend uses the same public API available to other clients:
+The frontend uses the same public API available to other clients. All routes
+below require an API key (see Authentication and Authorization above):
 
 ```bash
 # Create a research thread
 curl -X POST http://localhost:8000/api/v1/threads \
+  -H "Authorization: Bearer $API_KEY" \
   -H 'Content-Type: application/json' \
   -d '{"title":"NVIDIA research"}'
 
 # Start a run using the returned thread ID
 curl -X POST http://localhost:8000/api/v1/threads/THREAD_ID/runs \
+  -H "Authorization: Bearer $API_KEY" \
   -H 'Content-Type: application/json' \
   -d '{"query":"Analyze NVIDIA and its AI initiatives","with_rag":true}'
 
 # Stream progress using the returned run ID
-curl -N http://localhost:8000/api/v1/runs/RUN_ID/events
+curl -N http://localhost:8000/api/v1/runs/RUN_ID/events \
+  -H "Authorization: Bearer $API_KEY"
 ```
 
 ## Testing
@@ -526,6 +570,14 @@ docker compose build
 docker compose up -d
 ```
 
+`NEXT_PUBLIC_API_KEY` (frontend's own API key, see Authentication and
+Authorization below) is baked into the frontend image at build time, which
+means a two-step bootstrap the first time: bring up `api` with
+`AUTH_BOOTSTRAP_ADMIN_KEY` set but `NEXT_PUBLIC_API_KEY` still empty, mint a
+`user`-role key against the running API, set `NEXT_PUBLIC_API_KEY` in `.env`
+to it, then `docker compose build frontend && docker compose up -d frontend`.
+Rotating the frontend's key later requires the same rebuild step.
+
 The one-shot `rag-indexer` service builds the shared Chroma volume before the
 API starts. Existing indexes are reused unless `RAG_REBUILD_INDEX=true` is set.
 The API automatically initializes its PostgreSQL tables during startup.
@@ -551,20 +603,21 @@ or SSH tunnel for remote operator access.
   survive a process restart mid-conversation (a known follow-up now that a
   durable worker exists -- see Architecture below); completed reports and run
   history always survive in the selected database regardless.
-- Authentication and role-based access control are not implemented.
 - The current RAG retriever uses semantic similarity without a reranker or
-  hybrid lexical search.
+  hybrid lexical search, and has no document-level access control yet.
 - The repository does not yet publish benchmark scores for answer accuracy,
-  groundedness, retrieval recall, or production latency.
+  groundedness, retrieval recall, or production latency as a report (the
+  evaluation harness that can produce them exists -- see Testing above).
 
 ## Roadmap
 
 - [x] Move long-running agent execution to a durable worker queue
 - [ ] Move the LangGraph conversational checkpointer to Redis (currently in-process `MemorySaver`)
-- [ ] Add authentication and role-based access control
-- [ ] Add a versioned RAG evaluation dataset and Ragas-style evaluation
+- [x] Add authentication and role-based access control
+- [x] Add a versioned RAG evaluation dataset and custom groundedness/trajectory evaluation
 - [ ] Add hybrid retrieval, reranking, and document-level access controls
-- [ ] Add token, model-cost, and retrieval-quality metrics
+- [x] Add token and model-cost metrics
+- [ ] Add retrieval-quality metrics (precision/recall on retrieval itself)
 - [x] Add CI/CD security, test, and container scanning workflows
 - [ ] Add SEC filings, earnings reports, and additional market-data providers
 - [ ] Add portfolio-level comparisons and exportable reports

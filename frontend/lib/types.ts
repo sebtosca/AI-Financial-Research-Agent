@@ -2,6 +2,7 @@ export type RunStatus = "queued" | "running" | "completed" | "failed" | "cancell
 
 export type AgentStage =
   | "planning"
+  | "routing"
   | "stock_price"
   | "stock_history"
   | "news_search"

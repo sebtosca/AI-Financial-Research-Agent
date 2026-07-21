@@ -3,7 +3,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.api.schemas import EventType, RunEvent, RunRecord, RunStatus, ThreadRecord
+from app.api.schemas import ApiKeyRecord, EventType, RunEvent, RunRecord, RunStatus, ThreadRecord
 from app.api.store import PostgresRunStore
 
 
@@ -57,5 +57,12 @@ async def test_postgres_store_lifecycle():
         assert await store.latest_event_sequence(run.id) == 1
         assert await store.cancel(run.id) is True
         assert await store.is_cancelled(run.id) is True
+
+        api_key = await store.create_api_key(
+            ApiKeyRecord(hashed_key=f"hash-{uuid4()}", label="postgres test")
+        )
+        assert await store.get_api_key_by_hash(api_key.hashed_key) is not None
+        assert any(key.id == api_key.id for key in await store.list_api_keys())
+        assert await store.revoke_api_key(api_key.id) is True
     finally:
         await store.close()
