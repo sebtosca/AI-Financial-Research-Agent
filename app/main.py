@@ -3,11 +3,12 @@ from contextlib import asynccontextmanager
 import redis.asyncio as redis_asyncio
 from arq import create_pool
 from arq.connections import RedisSettings
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import make_asgi_app
 
-from app.api.routes import router
+from app.api.auth import ensure_bootstrap_admin_key, require_admin, require_api_key
+from app.api.routes import admin_router, health_router, router
 from app.api.service import AgentRunService
 from app.api.store import RunStore, create_run_store
 from app.config import (
@@ -37,6 +38,7 @@ def create_app(store: RunStore | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         await selected_store.initialize()
+        await ensure_bootstrap_admin_key(selected_store)
         arq_pool = await create_pool(RedisSettings.from_dsn(REDIS_URL)) if REDIS_URL else None
         app.state.arq_pool = arq_pool
         try:
@@ -63,7 +65,9 @@ def create_app(store: RunStore | None = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    app.include_router(router)
+    app.include_router(health_router)
+    app.include_router(router, dependencies=[Depends(require_api_key)])
+    app.include_router(admin_router, dependencies=[Depends(require_admin)])
     app.mount("/metrics", make_asgi_app())
 
     @app.get("/")

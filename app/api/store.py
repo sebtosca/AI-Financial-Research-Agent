@@ -11,6 +11,7 @@ from psycopg_pool import AsyncConnectionPool
 
 from .event_fanout import EventFanout
 from .schemas import (
+    ApiKeyRecord,
     FeedbackRecord,
     RunEvent,
     RunRecord,
@@ -41,6 +42,10 @@ class RunStore(Protocol):
     async def latest_event_sequence(self, run_id: UUID) -> int: ...
     async def add_feedback(self, feedback: FeedbackRecord) -> None: ...
     async def list_feedback(self, run_id: UUID) -> list[FeedbackRecord]: ...
+    async def create_api_key(self, key: ApiKeyRecord) -> ApiKeyRecord: ...
+    async def get_api_key_by_hash(self, hashed_key: str) -> ApiKeyRecord | None: ...
+    async def list_api_keys(self) -> list[ApiKeyRecord]: ...
+    async def revoke_api_key(self, key_id: UUID) -> bool: ...
 
 
 async def _no_op() -> None:
@@ -59,6 +64,7 @@ class InMemoryRunStore:
         self._runs: dict[UUID, RunRecord] = {}
         self._events: dict[UUID, list[RunEvent]] = defaultdict(list)
         self._feedback: dict[UUID, list[FeedbackRecord]] = defaultdict(list)
+        self._api_keys: dict[UUID, ApiKeyRecord] = {}
         self._subscribers: dict[UUID, set[asyncio.Queue[RunEvent]]] = defaultdict(set)
         self._cancelled: set[UUID] = set()
         self._lock = asyncio.Lock()
@@ -150,6 +156,32 @@ class InMemoryRunStore:
         async with self._lock:
             return list(self._feedback[run_id])
 
+    async def create_api_key(self, key: ApiKeyRecord) -> ApiKeyRecord:
+        async with self._lock:
+            self._api_keys[key.id] = key
+        return key
+
+    async def get_api_key_by_hash(self, hashed_key: str) -> ApiKeyRecord | None:
+        async with self._lock:
+            for key in self._api_keys.values():
+                if key.hashed_key == hashed_key:
+                    return key
+        return None
+
+    async def list_api_keys(self) -> list[ApiKeyRecord]:
+        async with self._lock:
+            return sorted(self._api_keys.values(), key=lambda item: item.created_at)
+
+    async def revoke_api_key(self, key_id: UUID) -> bool:
+        async with self._lock:
+            key = self._api_keys.get(key_id)
+            if key is None:
+                return False
+            self._api_keys[key_id] = key.model_copy(
+                update={"revoked_at": datetime.now(timezone.utc)}
+            )
+            return True
+
     async def latest_event_sequence(self, run_id: UUID) -> int:
         async with self._lock:
             events = self._events[run_id]
@@ -209,6 +241,12 @@ class SqliteRunStore:
                 data TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS feedback_run_id ON feedback(run_id);
+            CREATE TABLE IF NOT EXISTS api_keys (
+                id TEXT PRIMARY KEY,
+                hashed_key TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL,
+                data TEXT NOT NULL
+            );
             """
         )
         self._connection.commit()
@@ -346,6 +384,51 @@ class SqliteRunStore:
             ).fetchall()
         return [FeedbackRecord.model_validate_json(row["data"]) for row in rows]
 
+    async def create_api_key(self, key: ApiKeyRecord) -> ApiKeyRecord:
+        async with self._lock:
+            self._connection.execute(
+                "INSERT INTO api_keys (id, hashed_key, created_at, data) VALUES (?, ?, ?, ?)",
+                (
+                    str(key.id),
+                    key.hashed_key,
+                    key.created_at.isoformat(),
+                    key.model_dump_json(),
+                ),
+            )
+            self._connection.commit()
+        return key
+
+    async def get_api_key_by_hash(self, hashed_key: str) -> ApiKeyRecord | None:
+        async with self._lock:
+            row = self._connection.execute(
+                "SELECT data FROM api_keys WHERE hashed_key = ?", (hashed_key,)
+            ).fetchone()
+        return ApiKeyRecord.model_validate_json(row["data"]) if row else None
+
+    async def list_api_keys(self) -> list[ApiKeyRecord]:
+        async with self._lock:
+            rows = self._connection.execute(
+                "SELECT data FROM api_keys ORDER BY created_at"
+            ).fetchall()
+        return [ApiKeyRecord.model_validate_json(row["data"]) for row in rows]
+
+    async def revoke_api_key(self, key_id: UUID) -> bool:
+        async with self._lock:
+            row = self._connection.execute(
+                "SELECT data FROM api_keys WHERE id = ?", (str(key_id),)
+            ).fetchone()
+            if row is None:
+                return False
+            key = ApiKeyRecord.model_validate_json(row["data"]).model_copy(
+                update={"revoked_at": datetime.now(timezone.utc)}
+            )
+            self._connection.execute(
+                "UPDATE api_keys SET data = ? WHERE id = ?",
+                (key.model_dump_json(), str(key_id)),
+            )
+            self._connection.commit()
+            return True
+
     async def latest_event_sequence(self, run_id: UUID) -> int:
         async with self._lock:
             row = self._connection.execute(
@@ -425,6 +508,14 @@ class PostgresRunStore:
         """
         CREATE INDEX IF NOT EXISTS research_feedback_run_id_idx
             ON research_run_feedback(run_id)
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS research_api_keys (
+            id UUID PRIMARY KEY,
+            hashed_key TEXT NOT NULL UNIQUE,
+            created_at TIMESTAMPTZ NOT NULL,
+            data JSONB NOT NULL
+        )
         """,
     )
 
@@ -670,8 +761,55 @@ class PostgresRunStore:
             rows = await cursor.fetchall()
         return [FeedbackRecord.model_validate(row[0]) for row in rows]
 
+    async def create_api_key(self, key: ApiKeyRecord) -> ApiKeyRecord:
+        async with self._pool.connection() as connection:
+            await connection.execute(
+                """
+                INSERT INTO research_api_keys (id, hashed_key, created_at, data)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (key.id, key.hashed_key, key.created_at, _json(key)),
+            )
+        return key
 
-def _json(record: ThreadRecord | RunRecord | RunEvent | FeedbackRecord) -> Jsonb:
+    async def get_api_key_by_hash(self, hashed_key: str) -> ApiKeyRecord | None:
+        async with self._pool.connection() as connection:
+            cursor = await connection.execute(
+                "SELECT data FROM research_api_keys WHERE hashed_key = %s",
+                (hashed_key,),
+            )
+            row = await cursor.fetchone()
+        return ApiKeyRecord.model_validate(row[0]) if row else None
+
+    async def list_api_keys(self) -> list[ApiKeyRecord]:
+        async with self._pool.connection() as connection:
+            cursor = await connection.execute(
+                "SELECT data FROM research_api_keys ORDER BY created_at"
+            )
+            rows = await cursor.fetchall()
+        return [ApiKeyRecord.model_validate(row[0]) for row in rows]
+
+    async def revoke_api_key(self, key_id: UUID) -> bool:
+        async with self._pool.connection() as connection:
+            async with connection.transaction():
+                cursor = await connection.execute(
+                    "SELECT data FROM research_api_keys WHERE id = %s FOR UPDATE",
+                    (key_id,),
+                )
+                row = await cursor.fetchone()
+                if row is None:
+                    return False
+                key = ApiKeyRecord.model_validate(row[0]).model_copy(
+                    update={"revoked_at": datetime.now(timezone.utc)}
+                )
+                await connection.execute(
+                    "UPDATE research_api_keys SET data = %s WHERE id = %s",
+                    (_json(key), key_id),
+                )
+            return True
+
+
+def _json(record: ThreadRecord | RunRecord | RunEvent | FeedbackRecord | ApiKeyRecord) -> Jsonb:
     return Jsonb(record.model_dump(mode="json"))
 
 

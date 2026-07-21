@@ -53,6 +53,7 @@ class ThreadRecord(BaseModel):
     title: str
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
+    owner_key_id: UUID | None = None
 
 
 class RunCreate(BaseModel):
@@ -80,6 +81,7 @@ class RunRecord(BaseModel):
     completion_tokens: int | None = None
     estimated_cost_usd: float | None = None
     langsmith_run_id: str | None = None
+    owner_key_id: UUID | None = None
 
 
 class RunEvent(BaseModel):
@@ -112,3 +114,39 @@ class FeedbackRecord(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     service: str
+
+
+class ApiKeyRole(str, Enum):
+    USER = "user"
+    ADMIN = "admin"
+
+
+class ApiKeyRecord(BaseModel):
+    id: UUID = Field(default_factory=uuid4)
+    hashed_key: str
+    label: str
+    role: ApiKeyRole = ApiKeyRole.USER
+    allowed_scope: list[str] | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+    revoked_at: datetime | None = None
+
+
+class ApiKeyCreate(BaseModel):
+    label: str = Field(min_length=1, max_length=120)
+    role: ApiKeyRole = ApiKeyRole.USER
+
+
+class ApiKeyCreated(BaseModel):
+    id: UUID
+    label: str
+    role: ApiKeyRole
+    created_at: datetime
+    api_key: str
+
+
+class ApiKeyPublic(BaseModel):
+    id: UUID
+    label: str
+    role: ApiKeyRole
+    created_at: datetime
+    revoked_at: datetime | None = None

@@ -15,6 +15,7 @@ import {
   MessageSquareText,
   Newspaper,
   Plus,
+  Route,
   Search,
   Send,
   ShieldCheck,
@@ -25,7 +26,7 @@ import {
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import ReactMarkdown from "react-markdown";
 
-import { API_URL, cancelRun, createRun, createThread, getThread, listThreads } from "@/lib/api";
+import { API_URL, authHeaders, cancelRun, createRun, createThread, getThread, listThreads } from "@/lib/api";
 import type { AgentStage, RunEvent, RunStatus, ThreadRecord } from "@/lib/types";
 
 const suggestions = [
@@ -36,6 +37,7 @@ const suggestions = [
 
 const stageMeta: Record<AgentStage, { label: string; icon: typeof Activity }> = {
   planning: { label: "Planning research", icon: Sparkles },
+  routing: { label: "Routing to model", icon: Route },
   stock_price: { label: "Current market data", icon: TrendingUp },
   stock_history: { label: "Historical performance", icon: LineChart },
   news_search: { label: "Financial news", icon: Newspaper },
@@ -65,11 +67,11 @@ export default function WorkspacePage() {
     () => true,
     () => false
   );
-  const eventSourceRef = useRef<EventSource | null>(null);
+  const streamControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     listThreads().then(setThreads).catch(() => setThreads([]));
-    return () => eventSourceRef.current?.close();
+    return () => streamControllerRef.current?.abort();
   }, []);
 
   const activeStages = useMemo(() => {
@@ -126,30 +128,47 @@ export default function WorkspacePage() {
     }
   }
 
-  function connectToRun(id: string) {
-    eventSourceRef.current?.close();
-    const source = new EventSource(`${API_URL}/api/v1/runs/${id}/events`);
-    eventSourceRef.current = source;
+  async function connectToRun(id: string) {
+    streamControllerRef.current?.abort();
+    const controller = new AbortController();
+    streamControllerRef.current = controller;
 
-    source.onmessage = (message) => handleEvent(JSON.parse(message.data) as RunEvent);
-    const eventNames = [
-      "run.created",
-      "run.started",
-      "tool.started",
-      "tool.completed",
-      "report.delta",
-      "run.completed",
-      "run.failed",
-      "run.cancelled"
-    ];
-    eventNames.forEach((name) => {
-      source.addEventListener(name, (message) => {
-        handleEvent(JSON.parse((message as MessageEvent).data) as RunEvent);
+    try {
+      const response = await fetch(`${API_URL}/api/v1/runs/${id}/events`, {
+        headers: { Accept: "text/event-stream", ...authHeaders() },
+        signal: controller.signal
       });
-    });
-    source.onerror = () => {
-      if (status === "running") setError("Live updates interrupted. Reconnecting...");
-    };
+      if (!response.ok || !response.body) {
+        throw new Error(`Stream request failed with status ${response.status}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        let boundary = buffer.indexOf("\n\n");
+        while (boundary !== -1) {
+          const frame = buffer.slice(0, boundary);
+          buffer = buffer.slice(boundary + 2);
+          const dataLine = frame.split("\n").find((line) => line.startsWith("data: "));
+          if (dataLine) {
+            handleEvent(JSON.parse(dataLine.slice("data: ".length)) as RunEvent);
+          }
+          boundary = buffer.indexOf("\n\n");
+        }
+      }
+    } catch {
+      if (controller.signal.aborted) return;
+      if (status === "running") {
+        setError("Live updates interrupted. Reconnecting...");
+        setTimeout(() => connectToRun(id), 2000);
+      }
+    }
   }
 
   function handleEvent(event: RunEvent) {
@@ -165,16 +184,13 @@ export default function WorkspacePage() {
     }
     if (event.type === "run.completed") {
       setStatus("completed");
-      eventSourceRef.current?.close();
     }
     if (event.type === "run.failed") {
       setStatus("failed");
       setError(String(event.payload.message ?? "Research failed"));
-      eventSourceRef.current?.close();
     }
     if (event.type === "run.cancelled") {
       setStatus("cancelled");
-      eventSourceRef.current?.close();
     }
   }
 

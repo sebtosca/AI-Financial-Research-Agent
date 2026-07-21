@@ -82,6 +82,10 @@ APP_CORS_ORIGINS: tuple[str, ...] = tuple(
 REDIS_URL: str | None = os.getenv("REDIS_URL") or None
 WORKER_CONCURRENCY: int = _get_int("WORKER_CONCURRENCY", 10)
 
+# Auth
+AUTH_API_KEY_SALT: str = os.getenv("AUTH_API_KEY_SALT", "")
+AUTH_BOOTSTRAP_ADMIN_KEY: str | None = os.getenv("AUTH_BOOTSTRAP_ADMIN_KEY") or None
+
 # OpenAI
 OPENAI_API_KEY: str | None = os.getenv("OPENAI_API_KEY")
 OPENAI_API_BASE: str | None = os.getenv("OPENAI_API_BASE") or None
